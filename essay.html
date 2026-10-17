@@ -2550,7 +2550,7 @@ var qrcode = function() {
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 const CLOUD_ENV='college-english-d9ffi87h93f30a34';
 const AI_URL='https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-const AI_MODEL='deepseek-v4-flash-260425';
+const AI_MODEL='doubao-seed-1-6-250615';
 const LS={
   get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null==d?null:d;}catch(e){return d;}},
   set(k,v){localStorage.setItem(k,JSON.stringify(v));},
@@ -2807,20 +2807,55 @@ function delAsg(aid){
   if(!confirm('删除作业？本地该作业的作文数据也会清空（云端学生提交保留）。'))return;
   G.asg=G.asg.filter(a=>a.aid!==aid); G.ess=G.ess.filter(e=>e.aid!==aid); saveAll(); renderDash(); renderStats(); renderRevList(); toast('已删除');
 }
-/* 生成学生提交码 */
+/* 学生提交码：二维码必须指向可访问的线上/局域网地址，禁止 file:// 磁盘路径 */
+const ESSAY_BASE_DEFAULT='https://liu9098.github.io/College-English-Workbench/essay.html';
+function normEssayBase(v){
+  let b=(v||'').trim().split('?')[0].replace(/\/+$/,'');
+  if(!b) return '';
+  if(!/^https?:\/\//i.test(b)) return '';
+  return b;
+}
+function essayStuBase(){
+  const saved=normEssayBase(LS.get('essayBase',''));
+  if(saved) return saved;
+  if(location.protocol==='file:') return ESSAY_BASE_DEFAULT;
+  return location.origin+location.pathname;
+}
 function genQRFor(aid){
   const a=asgOf(aid); if(!a)return;
-  const url=location.origin+location.pathname+'?mode=student&aid='+aid;
   const box=$('#qr_'+aid);
   if(!box)return;
+  const b=essayStuBase();
+  const head=`<div class="hint" style="margin-bottom:6px">学生手机扫码进入本作业提交页（需联网访问 CloudBase）</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span class="hint" style="white-space:nowrap">学生访问地址</span>
+      <input id="essayBase_${aid}" value="${esc(b||'')}" placeholder="${ESSAY_BASE_DEFAULT}" style="flex:1;min-width:240px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px">
+      <button class="btn sm" onclick="applyEssayBase('${aid}')">应用</button>
+      <button class="btn sm ghost" onclick="resetEssayBase('${aid}')">自动识别</button>
+    </div>`;
+  if(!b){
+    box.innerHTML=head+`<div class="hint" style="margin-top:8px;color:#c53030;line-height:1.7">当前为本地文件（file://）打开，无法生成可扫码的线上地址。请在上方填入线上地址（如 ${ESSAY_BASE_DEFAULT}），再点「应用」。</div>`;
+    return;
+  }
+  const url=b+'?mode=student&aid='+aid;
+  const openUrl=url.replace(/'/g,"\\'");
   try{
     const q=qrcode(0,'M'); q.addData(url); q.make();
-    box.innerHTML=`<div style="display:inline-flex;gap:16px;align-items:center;background:#f7faff;border:1px solid var(--line);border-radius:14px;padding:14px">
-      <div style="background:#fff;border-radius:10px;padding:8px">${q.createSvgTag({cellSize:5,margin:6})}</div>
-      <div><div style="font-weight:800;font-size:16px">学生手机扫码提交</div>
-      <div class="hint" style="word-break:break-all">${esc(url)}</div>
-      <button class="btn sm ghost" style="margin-top:6px" onclick="copyTxt('${url}')">复制链接</button></div></div>`;
-  }catch(e){ box.innerHTML='<div class="hint">二维码生成失败：'+esc(e.message)+'</div>'; }
+    box.innerHTML=head+`
+      <div style="display:inline-block;margin-top:10px;padding:6px 12px;border-radius:999px;color:#fff;font-size:12px;background:#0e7490">📝 ${esc(a.title||'作文')}</div>
+      <div style="text-align:center;background:#fff;padding:10px;border-radius:10px;border:1px solid var(--line);display:block;margin-top:10px">${q.createSvgTag({cellSize:5,margin:6})}</div>
+      <div class="hint" style="word-break:break-all;margin-top:8px">${esc(url)}</div>
+      <div style="margin-top:6px"><button class="btn sm ghost" onclick="copyTxt('${openUrl}')">复制链接</button></div>`;
+  }catch(e){ box.innerHTML=head+'<div class="hint">二维码生成失败：'+esc(e.message)+'</div>'; }
+}
+function applyEssayBase(aid){
+  const el=document.getElementById('essayBase_'+aid);
+  const v=normEssayBase(el?el.value:'');
+  if(!v){ toast('请填写以 http:// 或 https:// 开头的完整地址'); return; }
+  LS.set('essayBase', v); genQRFor(aid);
+}
+function resetEssayBase(aid){
+  LS.remove('essayBase'); genQRFor(aid);
 }
 function copyTxt(t){ if(navigator.clipboard){navigator.clipboard.writeText(t).then(()=>toast('链接已复制')).catch(()=>toast('复制失败'));} }
 /* 总览渲染 */
@@ -3471,6 +3506,7 @@ async function doSubmit(){
     if(idx>=0){G.ess[idx]=rec;}else{G.ess.push(rec);}
     saveEss(); LS.remove('ea_draft_'+G.stu.sid+'_'+G.stuAid);
     toast('✅ 提交成功！');
+    if(!isPhoto && txt && txt.trim().length>=20){ autoGrade(r._id, txt, 'text'); }
     renderStudent();
   } else {
     if(btn){btn.disabled=false; btn.textContent='🚀 重新提交';}
@@ -3529,6 +3565,9 @@ function openEnvModal(){
       <button class="btn sm ghost" onclick="toggleArkShow()">👁 显示</button>
     </div>
     <p class="hint" style="font-size:13px">Key 只保存在你自己这台电脑的浏览器里，不写进网页文件、不发给学生。留空则禁用 AI 预评估。</p>
+    <label class="lb" style="margin-top:10px">🧠 模型 ID（火山方舟）</label>
+    <input id="arkModelInput" value="${esc(LS.get('ea_arkmodel','')||AI_MODEL)}" placeholder="如 doubao-seed-1-6-250615 或 ep-xxxxxxxx" style="width:100%">
+    <p class="hint" style="font-size:13px">填火山方舟「模型广场」里的模型 ID，或「在线推理」接入点的 ep- 开头 ID。留空则用默认（doubao-seed-1-6-250615）。</p>
     <div class="flex" style="margin-top:12px">
       <button class="btn green" onclick="saveEnv()">保存</button>
       <button class="btn ghost" onclick="testCloud()">测试连接</button>
@@ -3536,10 +3575,11 @@ function openEnvModal(){
       <button class="btn ghost" onclick="closeModal()">关闭</button>
     </div>`,false);
 }
-function saveEnv(){ LS.set('cloudEnv',$('#envInput').value.trim()); LS.set('ea_arkkey',($('#arkInput')?$('#arkInput').value.trim():'')); _cb=null;_cbIn=false; $('#envMsg').textContent='已保存'; toast('配置已保存'); }
+function saveEnv(){ LS.set('cloudEnv',$('#envInput').value.trim()); LS.set('ea_arkkey',($('#arkInput')?$('#arkInput').value.trim():'')); LS.set('ea_arkmodel',($('#arkModelInput')?$('#arkModelInput').value.trim():'')); _cb=null;_cbIn=false; $('#envMsg').textContent='已保存'; toast('配置已保存'); }
 async function testAI(){
   const inp=$('#arkInput'); const v=inp?inp.value.trim():'';
   if(v) LS.set('ea_arkkey', v); // 直接读取当前输入框，未点保存也能测
+  const mi=$('#arkModelInput'); if(mi&&mi.value.trim()) LS.set('ea_arkmodel', mi.value.trim());
   const key=v||LS.get('ea_arkkey','');
   if(!key){toast('请先粘贴 AI Key 再点测试');return;}
   toast('AI 测试中…');
@@ -3557,26 +3597,54 @@ function aiPrompt(text){
 作文：
 ${text.slice(0,3000)}`;
 }
+/* 云函数代理：教师端与学生端统一经此后端调 Ark，Key 仅存云函数环境变量，不暴露给学生 */
+async function aiEvalProxy(text,type){
+  const app=await cbReady(); if(!app) return {error:'未登录云端，无法使用 AI 代理'};
+  try{
+    const res=await app.callFunction({name:'arkProxy', data:{text, type:type||'text'}});
+    const r=res&&res.result;
+    if(r&&r.error) return {error:r.error};
+    if(r&&r.result) return r.result;
+    return {error:'AI 代理无有效返回'};
+  }catch(e){ return {error:'AI 代理调用失败：'+(e&&e.message||e)}; }
+}
+async function autoGrade(eid, text, type){
+  if(!eid||!text||text.trim().length<20) return;
+  const r=await aiEvalProxy(text,type);
+  if(r.error){ console.warn('自动评分跳过：',r.error); return; }
+  const g={ eid:eid, aid:G.stuAid||'', auto:true, status:'auto',
+            dims:r.dims||null, band:r.band||null, total:r.total!=null?r.total:null,
+            rev:r.comment||null, inline:[], prep:'', fb:r.advice||'', pen:null, bubbles:[],
+            up:Date.now(), ts:Date.now(), dirty:false };
+  const gr=await gradeUpsert(g);
+  if(gr&&gr.ok){ toast('🤖 AI 已自动评分（教师可覆盖）'); }
+}
+
 async function aiEval(text,type){
+  // 优先走云函数代理（Key 仅存服务器端，学生端/教师端通用，不暴露 key）
+  const pr=await aiEvalProxy(text,type);
+  if(!pr.error) return pr;
+  // 代理不可用则回退：教师本机 key 直连 Ark
   const key=LS.get('ea_arkkey','');
-  if(!key) return {error:'未配置 AI Key。点右上角「⚙️ 云端配置」粘贴火山引擎 ARK Key（ark- 开头）'};
+  if(!key) return pr;
   if(!text||text.trim().length<20) return {error:'作文内容太短，无法评估'};
-  const body={model:AI_MODEL,messages:[{role:'user',content:aiPrompt(text)}],max_tokens:600,temperature:0.2};
+  const body={model:(LS.get('ea_arkmodel','')||AI_MODEL),messages:[{role:'user',content:aiPrompt(text)}],max_tokens:600,temperature:0.2};
   try{
     const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),35000);
     const r=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify(body),signal:ctrl.signal});
     clearTimeout(to);
-    if(!r.ok){ const t=await r.text().catch(()=>''); return {error:'AI接口 HTTP '+r.status+'：'+(t||'').slice(0,220)}; }
+    if(!r.ok){ const t=await r.text().catch(()=>''); if(r.status===400&&/InvalidEndpoint|ClosedEndpoint/i.test(t||'')) return {error:'模型 ID 不可用（已关闭/不存在）。请到「⚙️ 云端配置」把「模型 ID」改成你账号已开通的模型（或接入点 ep- 开头 ID）后重试。'}; return {error:'AI接口 HTTP '+r.status+'：'+(t||'').slice(0,220)}; }
     const j=await r.json();
     const msg=(j.choices&&j.choices[0]&&j.choices[0].message)||{};
     const content=(msg.content||'').trim();
-    const reasoning=(msg.reasoning_content||'').trim();   // 推理模型（deepseek-v4-flash）可能把 JSON 放在 reasoning_content
+    const reasoning=(msg.reasoning_content||'').trim();
     const obj=extractJson(content)||extractJson(reasoning)||extractJson(content+'\n'+reasoning);
     if(!obj) return {error:'AI 未返回有效评分（返回：'+(content||reasoning||'').slice(0,160)+'）'};
     if(obj.band==null||obj.total==null) return {error:'AI 返回缺少 band/total'};
     return obj;
   }catch(e){ return {error:'AI 调用失败：'+(e&&e.message||e)}; }
 }
+
 /* 健壮提取：逐字符扫描，找第一个「闭合」的 JSON 对象（兼容尾随文字 / 推理模型把 JSON 放进 reasoning_content） */
 function extractJson(text){
   if(!text) return null;
