@@ -3695,23 +3695,37 @@ function saveNote(i,v){ LS.set('prep_note_'+i,v); toast('备课批注已保存')
 function defaultGroups(){ return [{name:'第一组',score:0},{name:'第二组',score:0},{name:'第三组',score:0},{name:'第四组',score:0}]; }
 /* 预置授课班级（首次打开时种入；已有 classes 则完全不动） */
 const DEFAULT_CLASSES=[
-  {id:'c1', name:'2026级临床医学6班'},
-  {id:'c2', name:'2026级临床医学4班'},
-  {id:'c3', name:'2026级临床医学5班'},
-  {id:'c4', name:'2026级口腔医学技术1班'},
-  {id:'c5', name:'2026级中医康复1班'}
+  {id:'c1', name:'2026级临床医学6班', roster:['刘畅', '吴丽珠', '郭佳硕', '王悦萌', '吴茜茜', '曹文宝', '何秋彤', '王天宏', '李泽宸', '朱紫怡', '钟可', '王子辰', '孙锐', '胡鑫', '李鑫斐', '刘朱璟', '缪帅', '徐子琦', '刘子宁', '闵悦', '曹可欣', '姚子辰', '臧诗语', '尹卫', '姚雨彤', '叶子仪', '曾甜甜', '史佳子', '张庭瑞', '徐雨欣', '蔡子千', '查铭洋', '雷添添', '李思琦', '罗格', '杨震钦', '刘萱瑶', '李瑶']},
+  {id:'c2', name:'2026级临床医学4班', roster:['黄鸿涛', '陈瑾菡', '李睿彤', '耿宇轩', '高逸扬', '淡若水', '戚静淑', '姚喆语', '付桐', '朱彤', '梁瑞', '卞钰童', '孔庆悦', '付紫瑄', '熊黄程', '高旗', '魏奥涵', '张萌萌', '洪学之', '方清', '赵冰清', '陈慧琳', '吕家祥', '张旭博', '王欣妍', '汪旭', '马瑞晓', '薛雯文', '吴昊天', '周炜茗', '袁满', '刘慧', '王婷婷', '王金铭', '赵万昕', '闫奕彤', '唐健皓', '高雅文', '相雨彤', '周熙惠', '崔钟傲', '刘勇铄', '吕文希', '马星雨', '冷淑瑶', '胡城玮', '张顺', '张紫嫣', '赵诗雨', '赵一璇', '严柯欣', '孙嘉升']},
+  {id:'c3', name:'2026级临床医学5班', roster:['王雅沪', '袁艺', '于孝河', '满祥民', '刘俊杰', '孙萌', '尹华卿', '李雯', '张旭', '孙翊豪', '杨猛', '周莎', '李欣照', '张梓靖', '宋甜甜', '孙菡', '丁天佑', '曹可盈', '李心悦', '刘泽成', '穆纾延', '姜旭', '刘彤彤', '金芸霞', '杭灿', '姚刘家沁', '许琦琦', '刘家惠', '王晶', '万可心', '王薇雅', '李子轩', '周怡乎', '袁子恒', '石张颖', '赵祺琦', '江欣睿', '孙嘉成']},
+  {id:'c4', name:'2026级口腔医学技术1班', roster:['刘美娜', '王文蔚', '王宗颐', '戈思荣', '闫文燕', '洪梓晴', '单玉娴', '袁振鑫', '陈双晴', '张子妍', '薛子凤', '霍婷婷', '黎翰泽', '杜雨萍', '许佳慧', '董菲', '纪梦凡', '周文珍', '姜艺冉', '周诗凡', '左美玲', '吴鑫', '陈世英', '卞嘉莉', '钟裕婷', '谢泽城', '蔡媛许', '杨力', '王一冰', '王欣悦', '岳梦茹', '苏雨', '费晓蔓', '许晓茹', '何丹', '戴成铭', '朱婷茹', '葛书言', '王裕菁', '李晓双', '王胤棋', '郁莲莲', '高艺菲', '李金洺', '赵宸冉', '仁措吉', '索南多杰', '于成文', '诺日本', '华旦达哇', '郑欢', '陈品蓁', '文子敬', '罗碧瑶']},
+  {id:'c5', name:'2026级中医康复1班', roster:['朱奕奕', '杨坤晗', '张聆溪', '王鑫', '刘桐举', '朱芷萱', '纪悠然', '王仟仟', '刘医铭', '陈施媛', '黄婉成', '李思竹', '李子忻', '赵子岚', '张清琇', '刘杨', '张宸', '许心如', '范馨艺', '陈文雨', '郝湘瑜', '徐健峰', '刘鑫怡', '孙佳怡', '戴君豪', '王义川', '任旭', '徐思彤', '袁红强', '臧欣怡', '朱轩宇', '左嘉颖', '王颖', '吴听雅', '夏澜欣', '戴悦悦', '徐子婷', '苏静怡', '夏浩文', '朱静宇', '才让卓玛', '尕土扎西', '多杰热却', '周才加', '彭毛吉', '彭雅璐', '梁乐', '黄可儿']},
 ];
 function getClasses(){
   let cs=LS.get('classes');
   if(!Array.isArray(cs)){
-    // 首次迁移：把旧 roster/scores/groups 自动包进第一个班；旧 key 保留不删，便于回退
-    cs=DEFAULT_CLASSES.map((d,i)=>({
+    cs=DEFAULT_CLASSES.map(d=>({
       id:d.id, name:d.name,
-      roster: i===0 ? LS.get('roster',[]) : [],
-      scores: i===0 ? LS.get('scores',{}) : {},
-      groups: i===0 ? LS.get('groups', defaultGroups()) : defaultGroups()
+      roster: d.roster ? d.roster.slice() : [],
+      scores: {},
+      groups: defaultGroups()
     }));
     LS.set('classes', cs);
+    LS.set('embeddedRosterDone','1');
+    return cs;
+  }
+  if(LS.get('embeddedRosterDone')!=='1'){
+    const defMap={}; DEFAULT_CLASSES.forEach(d=>defMap[d.id]=d);
+    let changed=false;
+    cs=cs.map(c=>{
+      const d=defMap[c.id];
+      if((!c.roster||c.roster.length===0) && d && d.roster && d.roster.length){
+        changed=true; return Object.assign({},c,{roster:d.roster.slice()});
+      }
+      return c;
+    });
+    if(changed) LS.set('classes', cs);
+    LS.set('embeddedRosterDone','1');
   }
   return cs;
 }
@@ -4721,7 +4735,8 @@ async function syncContentFromCloud(){
   if(changed){ renderContentUnits(); toast('已从云端恢复单元内容'); }
 }
 /* ---- 学生访问地址：自动识别当前网址；file:// 打开时必须手填，否则二维码指向磁盘路径 ---- */
-const STU_BASE_EXAMPLE='https://54212fd55d78434b8e12eae734e3fd54.app.workbuddy.link/index.html';
+const STU_BASE_DEFAULT='https://liu9098.github.io/College-English-Workbench/index.html';
+const STU_BASE_EXAMPLE=STU_BASE_DEFAULT;
 function normStuBase(v){
   let b=(v||'').trim().replace(/\/+$/,'');
   if(!b) return '';
@@ -4732,7 +4747,9 @@ function normStuBase(v){
 }
 function autoStuBase(){
   if(location.protocol==='file:') return '';
-  return location.origin+location.pathname;
+  // 离线课堂包（LOCAL_MODE）用局域网地址；云端默认用永久 Pages 链接，避免依赖沙箱
+  if(typeof LOCAL_MODE!=='undefined' && LOCAL_MODE) return location.origin+location.pathname;
+  return STU_BASE_DEFAULT;
 }
 function currentStuBase(){
   const saved=normStuBase(LS.get('stuBase',''));
