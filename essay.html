@@ -2550,7 +2550,7 @@ var qrcode = function() {
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 const CLOUD_ENV='college-english-d9ffi87h93f30a34';
 const AI_URL='https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-const AI_MODEL='doubao-seed-1-6-250615';
+const AI_MODEL=''; /* 默认留空：必须在本机「⚙️ 云端配置 → 模型 ID」填写你账号已开通的火山方舟模型（如 doubao-seed-2-1-lite-260915）或 ep- 接入点 ID，否则提示填写 */
 const LS={
   get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):null==d?null:d;}catch(e){return d;}},
   set(k,v){localStorage.setItem(k,JSON.stringify(v));},
@@ -3566,7 +3566,7 @@ function openEnvModal(){
     </div>
     <p class="hint" style="font-size:13px">Key 只保存在你自己这台电脑的浏览器里，不写进网页文件、不发给学生。留空则禁用 AI 预评估。</p>
     <label class="lb" style="margin-top:10px">🧠 模型 ID（火山方舟）</label>
-    <input id="arkModelInput" value="${esc(LS.get('ea_arkmodel','')||AI_MODEL)}" placeholder="如 doubao-seed-1-6-250615 或 ep-xxxxxxxx" style="width:100%">
+    <input id="arkModelInput" value="${esc(LS.get('ea_arkmodel','')||AI_MODEL)}" placeholder="如 doubao-seed-2-1-lite-260915 或 ep-xxxxxxxx" style="width:100%">
     <p class="hint" style="font-size:13px">填火山方舟「模型广场」里的模型 ID，或「在线推理」接入点的 ep- 开头 ID。留空则用默认（doubao-seed-1-6-250615）。</p>
     <div class="flex" style="margin-top:12px">
       <button class="btn green" onclick="saveEnv()">保存</button>
@@ -3601,7 +3601,10 @@ ${text.slice(0,3000)}`;
 async function aiEvalProxy(text,type){
   const app=await cbReady(); if(!app) return {error:'未登录云端，无法使用 AI 代理'};
   try{
-    const res=await app.callFunction({name:'arkProxy', data:{text, type:type||'text'}});
+    const res=await Promise.race([
+      app.callFunction({name:'arkProxy', data:{text, type:type||'text'}}),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('AI 代理调用超时（6秒），请确认 arkProxy 云函数已部署')),6000))
+    ]);
     const r=res&&res.result;
     if(r&&r.error) return {error:r.error};
     if(r&&r.result) return r.result;
@@ -3621,28 +3624,32 @@ async function autoGrade(eid, text, type){
 }
 
 async function aiEval(text,type){
-  // 优先走云函数代理（Key 仅存服务器端，学生端/教师端通用，不暴露 key）
+  const key=LS.get('ea_arkkey','');
+  // 教师本机已配置 Key：直接直连火山引擎，跳过云函数代理（更快更稳，不依赖 arkProxy 是否部署）
+  if(key){
+    if(!text||text.trim().length<20) return {error:'作文内容太短，无法评估'};
+    const model=(LS.get('ea_arkmodel','')||AI_MODEL);
+    if(!model) return {error:'请先在「⚙️ 云端配置 → 模型 ID」填写火山方舟模型 ID（如 doubao-seed-2-1-lite-260915 或 ep- 接入点 ID）'};
+    const body={model:model,messages:[{role:'user',content:aiPrompt(text)}],max_tokens:600,temperature:0.2};
+    try{
+      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),35000);
+      const r=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify(body),signal:ctrl.signal});
+      clearTimeout(to);
+      if(!r.ok){ const t=await r.text().catch(()=>''); if(r.status===400&&/InvalidEndpoint|ClosedEndpoint/i.test(t||'')) return {error:'模型 ID 不可用（已关闭/不存在）。请到「⚙️ 云端配置」把「模型 ID」改成你账号已开通的模型（或接入点 ep- 开头 ID）后重试。'}; return {error:'AI接口 HTTP '+r.status+'：'+(t||'').slice(0,220)}; }
+      const j=await r.json();
+      const msg=(j.choices&&j.choices[0]&&j.choices[0].message)||{};
+      const content=(msg.content||'').trim();
+      const reasoning=(msg.reasoning_content||'').trim();
+      const obj=extractJson(content)||extractJson(reasoning)||extractJson(content+'\n'+reasoning);
+      if(!obj) return {error:'AI 未返回有效评分（返回：'+(content||reasoning||'').slice(0,160)+'）'};
+      if(obj.band==null||obj.total==null) return {error:'AI 返回缺少 band/total'};
+      return obj;
+    }catch(e){ return {error:'AI 调用失败：'+(e&&e.message||e)}; }
+  }
+  // 无本机 Key：走云函数代理（学生端/共享部署场景，Key 仅存服务器端）
   const pr=await aiEvalProxy(text,type);
   if(!pr.error) return pr;
-  // 代理不可用则回退：教师本机 key 直连 Ark
-  const key=LS.get('ea_arkkey','');
-  if(!key) return pr;
-  if(!text||text.trim().length<20) return {error:'作文内容太短，无法评估'};
-  const body={model:(LS.get('ea_arkmodel','')||AI_MODEL),messages:[{role:'user',content:aiPrompt(text)}],max_tokens:600,temperature:0.2};
-  try{
-    const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),35000);
-    const r=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify(body),signal:ctrl.signal});
-    clearTimeout(to);
-    if(!r.ok){ const t=await r.text().catch(()=>''); if(r.status===400&&/InvalidEndpoint|ClosedEndpoint/i.test(t||'')) return {error:'模型 ID 不可用（已关闭/不存在）。请到「⚙️ 云端配置」把「模型 ID」改成你账号已开通的模型（或接入点 ep- 开头 ID）后重试。'}; return {error:'AI接口 HTTP '+r.status+'：'+(t||'').slice(0,220)}; }
-    const j=await r.json();
-    const msg=(j.choices&&j.choices[0]&&j.choices[0].message)||{};
-    const content=(msg.content||'').trim();
-    const reasoning=(msg.reasoning_content||'').trim();
-    const obj=extractJson(content)||extractJson(reasoning)||extractJson(content+'\n'+reasoning);
-    if(!obj) return {error:'AI 未返回有效评分（返回：'+(content||reasoning||'').slice(0,160)+'）'};
-    if(obj.band==null||obj.total==null) return {error:'AI 返回缺少 band/total'};
-    return obj;
-  }catch(e){ return {error:'AI 调用失败：'+(e&&e.message||e)}; }
+  return pr;
 }
 
 /* 健壮提取：逐字符扫描，找第一个「闭合」的 JSON 对象（兼容尾随文字 / 推理模型把 JSON 放进 reasoning_content） */
