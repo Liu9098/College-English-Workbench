@@ -3567,7 +3567,7 @@ function openEnvModal(){
     <p class="hint" style="font-size:13px">Key 只保存在你自己这台电脑的浏览器里，不写进网页文件、不发给学生。留空则禁用 AI 预评估。</p>
     <label class="lb" style="margin-top:10px">🧠 模型 ID（火山方舟）</label>
     <input id="arkModelInput" value="${esc(LS.get('ea_arkmodel','')||AI_MODEL)}" placeholder="如 doubao-seed-2-1-lite-260915 或 ep-xxxxxxxx" style="width:100%">
-    <p class="hint" style="font-size:13px">填火山方舟「模型广场」里的模型 ID，或「在线推理」接入点的 ep- 开头 ID。留空则用默认（doubao-seed-1-6-250615）。</p>
+    <p class="hint" style="font-size:13px">填火山方舟「模型广场」里的模型 ID，或「在线推理」接入点的 ep- 开头 ID。留空则用云函数默认模型（doubao-seed-2-1-lite-260915）。</p>
     <div class="flex" style="margin-top:12px">
       <button class="btn green" onclick="saveEnv()">保存</button>
       <button class="btn ghost" onclick="testCloud()">测试连接</button>
@@ -3577,14 +3577,21 @@ function openEnvModal(){
 }
 function saveEnv(){ LS.set('cloudEnv',$('#envInput').value.trim()); LS.set('ea_arkkey',($('#arkInput')?$('#arkInput').value.trim():'')); LS.set('ea_arkmodel',($('#arkModelInput')?$('#arkModelInput').value.trim():'')); _cb=null;_cbIn=false; $('#envMsg').textContent='已保存'; toast('配置已保存'); }
 async function testAI(){
+  const box=$('#envMsg');
   const inp=$('#arkInput'); const v=inp?inp.value.trim():'';
-  if(v) LS.set('ea_arkkey', v); // 直接读取当前输入框，未点保存也能测
+  if(v) LS.set('ea_arkkey', v);
   const mi=$('#arkModelInput'); if(mi&&mi.value.trim()) LS.set('ea_arkmodel', mi.value.trim());
-  const key=v||LS.get('ea_arkkey','');
-  if(!key){toast('请先粘贴 AI Key 再点测试');return;}
+  const sample='Dear Sir, I am writing to apply for the job. I am a student and I am good at English. I hope to get a chance. Yours, Li Ming';
+  if(box) box.innerHTML='<span style="color:#3182ce">正在调用云函数 arkProxy（最多 35 秒）…</span>';
   toast('AI 测试中…');
-  const r=await aiEval('Dear Sir, I am writing to apply for the job. I am a student and I am good at English. I hope to get a chance. Yours, Li Ming','text');
-  if(r.error) toast('❌ '+r.error); else toast('✅ AI 可用，档位 '+r.band+'，总分 '+r.total);
+  const pr=await aiEvalProxy(sample,'text');
+  if(!pr.error){
+    if(box) box.innerHTML='<span style="color:#2f855a">✅ 云函数代理正常。档位 '+esc(String(pr.band||'-'))+'，总分 '+esc(String(pr.total!=null?pr.total:'-'))+'</span>';
+    toast('✅ 云函数代理可用'); return;
+  }
+  if(box) box.innerHTML='<div style="color:#c53030;line-height:1.7">❌ 云函数代理失败：'+esc(pr.error)+'</div>'
+    +'<div class="hint" style="margin-top:6px;line-height:1.7">按顺序排查：① 函数名是否叫 <b>arkProxy</b>；② 函数代码是否点过蓝色「保存」并提示部署成功；③ 「函数配置 → 环境变量」是否有 <b>ARK_API_KEY</b>；④ 私有网络是否关闭（关闭=默认有公网访问）。</div>';
+  toast('❌ AI 代理失败，请看下方原因');
 }
 function toggleArkShow(){ const i=$('#arkInput'); if(!i)return; i.type = i.type==='password'?'text':'password'; }
 
@@ -3603,7 +3610,7 @@ async function aiEvalProxy(text,type){
   try{
     const res=await Promise.race([
       app.callFunction({name:'arkProxy', data:{text, type:type||'text'}}),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('AI 代理调用超时（6秒），请确认 arkProxy 云函数已部署')),6000))
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('云函数 arkProxy 35 秒无响应（未部署成功 / 函数名不符 / 无法访问外网 / ARK_API_KEY 未配置）')),35000))
     ]);
     const r=res&&res.result;
     if(r&&r.error) return {error:r.error};
@@ -3628,14 +3635,15 @@ async function aiEval(text,type){
   // 浏览器直连火山引擎会被跨域(CORS)拦截而挂起（已实测 ark 不返回 Access-Control-Allow-Origin），故优先走云函数代理（服务器端调用，key 不暴露、不被 CORS 拦）
   const pr=await aiEvalProxy(text,type);
   if(!pr.error) return pr;
-  // 代理不可用：尝试教师本机 Key 直连（多数浏览器仍会被 CORS 拦截，仅作提示性回退）
+  const proxyErr='云函数代理失败：'+(pr.error||'未知原因');
+  // 代理不可用：尝试教师本机 Key 直连（浏览器直连几乎必被 CORS 拦截，仅作最后兜底）
   const key=LS.get('ea_arkkey','');
   if(key){
     const model=(LS.get('ea_arkmodel','')||AI_MODEL);
     if(!model) return {error:'请先在「⚙️ 云端配置 → 模型 ID」填写火山方舟模型 ID（如 doubao-seed-2-1-lite-260915 或 ep- 接入点 ID）'};
     const body={model:model,messages:[{role:'user',content:aiPrompt(text)}],max_tokens:600,temperature:0.2};
     try{
-      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),20000);
+      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),8000);
       const r=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify(body),signal:ctrl.signal});
       clearTimeout(to);
       if(!r.ok){ const t=await r.text().catch(()=>''); if(r.status===400&&/InvalidEndpoint|ClosedEndpoint/i.test(t||'')) return {error:'模型 ID 不可用（已关闭/不存在）。请到「⚙️ 云端配置」把「模型 ID」改成你账号已开通的模型（或接入点 ep- 开头 ID）后重试。'}; return {error:'AI接口 HTTP '+r.status+'：'+(t||'').slice(0,220)}; }
@@ -3648,13 +3656,13 @@ async function aiEval(text,type){
       if(obj.band==null||obj.total==null) return {error:'AI 返回缺少 band/total'};
       return obj;
     }catch(e){
-      if(e&&(e.name==='AbortError'||/abort/i.test(e.message||''))) return {error:'浏览器直连超时（20秒）。浏览器直接调用火山引擎会被跨域(CORS)拦截而挂起——请改用云函数代理：在 CloudBase 控制台新建 arkProxy 云函数并填 ARK_API_KEY（详见对话说明）。'};
-      if(/Failed to fetch|NetworkError|network/i.test(e.message||'')) return {error:'浏览器直连被网络/CORS 拦截（'+(e.message||'')+'）。浏览器不能直接调火山引擎，请改用云函数代理 arkProxy。'};
-      return {error:'AI 调用失败：'+(e&&e.message||e)};
+      if(e&&(e.name==='AbortError'||/abort/i.test(e.message||''))) return {error:proxyErr+'；浏览器直连也超时（8秒，CORS 拦截）。请先修好云函数：确认 arkProxy 已「保存」部署成功、函数配置里有环境变量 ARK_API_KEY。'};
+      if(/Failed to fetch|NetworkError|network/i.test(e.message||'')) return {error:proxyErr+'；浏览器直连被 CORS 拦截（'+(e.message||'')+'）。'};
+      return {error:proxyErr+'；直连异常：'+(e&&e.message||e)};
     }
   }
   // 既无代理也无本机 Key：给出明确指引
-  return {error:'AI 暂不可用：请二选一——① 在 CloudBase 控制台新建云函数 arkProxy 并填 ARK_API_KEY 环境变量（推荐，学生端也能用，且不用在浏览器粘贴 key）；② 在本机「⚙️ 云端配置」粘贴 Ark Key（但浏览器直连常因跨域被拦截）。当前二者皆未配置。'};
+  return {error:proxyErr+'；本机也未配置 Ark Key。请到 CloudBase 控制台确认 arkProxy 云函数已部署，并在「函数配置 → 环境变量」添加 ARK_API_KEY。'};
 }
 
 /* 健壮提取：逐字符扫描，找第一个「闭合」的 JSON 对象（兼容尾随文字 / 推理模型把 JSON 放进 reasoning_content） */
