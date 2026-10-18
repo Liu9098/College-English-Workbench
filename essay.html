@@ -3624,15 +3624,18 @@ async function autoGrade(eid, text, type){
 }
 
 async function aiEval(text,type){
+  if(!text||text.trim().length<20) return {error:'作文内容太短，无法评估'};
+  // 浏览器直连火山引擎会被跨域(CORS)拦截而挂起（已实测 ark 不返回 Access-Control-Allow-Origin），故优先走云函数代理（服务器端调用，key 不暴露、不被 CORS 拦）
+  const pr=await aiEvalProxy(text,type);
+  if(!pr.error) return pr;
+  // 代理不可用：尝试教师本机 Key 直连（多数浏览器仍会被 CORS 拦截，仅作提示性回退）
   const key=LS.get('ea_arkkey','');
-  // 教师本机已配置 Key：直接直连火山引擎，跳过云函数代理（更快更稳，不依赖 arkProxy 是否部署）
   if(key){
-    if(!text||text.trim().length<20) return {error:'作文内容太短，无法评估'};
     const model=(LS.get('ea_arkmodel','')||AI_MODEL);
     if(!model) return {error:'请先在「⚙️ 云端配置 → 模型 ID」填写火山方舟模型 ID（如 doubao-seed-2-1-lite-260915 或 ep- 接入点 ID）'};
     const body={model:model,messages:[{role:'user',content:aiPrompt(text)}],max_tokens:600,temperature:0.2};
     try{
-      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),35000);
+      const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),20000);
       const r=await fetch(AI_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify(body),signal:ctrl.signal});
       clearTimeout(to);
       if(!r.ok){ const t=await r.text().catch(()=>''); if(r.status===400&&/InvalidEndpoint|ClosedEndpoint/i.test(t||'')) return {error:'模型 ID 不可用（已关闭/不存在）。请到「⚙️ 云端配置」把「模型 ID」改成你账号已开通的模型（或接入点 ep- 开头 ID）后重试。'}; return {error:'AI接口 HTTP '+r.status+'：'+(t||'').slice(0,220)}; }
@@ -3640,16 +3643,18 @@ async function aiEval(text,type){
       const msg=(j.choices&&j.choices[0]&&j.choices[0].message)||{};
       const content=(msg.content||'').trim();
       const reasoning=(msg.reasoning_content||'').trim();
-      const obj=extractJson(content)||extractJson(reasoning)||extractJson(content+'\n'+reasoning);
+      const obj=extractJson(content)||extractJson(reasoning);
       if(!obj) return {error:'AI 未返回有效评分（返回：'+(content||reasoning||'').slice(0,160)+'）'};
       if(obj.band==null||obj.total==null) return {error:'AI 返回缺少 band/total'};
       return obj;
-    }catch(e){ return {error:'AI 调用失败：'+(e&&e.message||e)}; }
+    }catch(e){
+      if(e&&(e.name==='AbortError'||/abort/i.test(e.message||''))) return {error:'浏览器直连超时（20秒）。浏览器直接调用火山引擎会被跨域(CORS)拦截而挂起——请改用云函数代理：在 CloudBase 控制台新建 arkProxy 云函数并填 ARK_API_KEY（详见对话说明）。'};
+      if(/Failed to fetch|NetworkError|network/i.test(e.message||'')) return {error:'浏览器直连被网络/CORS 拦截（'+(e.message||'')+'）。浏览器不能直接调火山引擎，请改用云函数代理 arkProxy。'};
+      return {error:'AI 调用失败：'+(e&&e.message||e)};
+    }
   }
-  // 无本机 Key：走云函数代理（学生端/共享部署场景，Key 仅存服务器端）
-  const pr=await aiEvalProxy(text,type);
-  if(!pr.error) return pr;
-  return pr;
+  // 既无代理也无本机 Key：给出明确指引
+  return {error:'AI 暂不可用：请二选一——① 在 CloudBase 控制台新建云函数 arkProxy 并填 ARK_API_KEY 环境变量（推荐，学生端也能用，且不用在浏览器粘贴 key）；② 在本机「⚙️ 云端配置」粘贴 Ark Key（但浏览器直连常因跨域被拦截）。当前二者皆未配置。'};
 }
 
 /* 健壮提取：逐字符扫描，找第一个「闭合」的 JSON 对象（兼容尾随文字 / 推理模型把 JSON 放进 reasoning_content） */
